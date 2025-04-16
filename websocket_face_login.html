@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Face Attendance - WebSocket Face Authentication</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .panel {
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 5px;
+            position: relative;
+        }
+        .panel.loading::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .panel.loading::before {
+            content: "Processing...";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1;
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 0;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input[type="text"], input[type="email"], input[type="password"] {
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 250px;
+        }
+        #videoContainer {
+            margin: 10px 0;
+            position: relative;
+        }
+        #video {
+            width: 100%;
+            max-width: 640px;
+            border: 1px solid #ccc;
+            background-color: #f0f0f0;
+        }
+        #canvas {
+            display: none;
+        }
+        #messages {
+            white-space: pre-wrap;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-height: 100px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+        }
+        .hidden {
+            display: none;
+        }
+        .user-info {
+            border-left: 3px solid #4CAF50;
+            padding-left: 15px;
+            margin: 10px 0;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-indicator.connected {
+            background-color: #4CAF50;
+        }
+        .status-indicator.disconnected {
+            background-color: #f44336;
+        }
+        .status-indicator.processing {
+            background-color: #2196F3;
+        }
+        .status-message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status-message.success {
+            background-color: #dff0d8;
+            border: 1px solid #d0e9c6;
+            color: #3c763d;
+        }
+        .status-message.error {
+            background-color: #f2dede;
+            border: 1px solid #ebcccc;
+            color: #a94442;
+        }
+        .status-message.info {
+            background-color: #d9edf7;
+            border: 1px solid #bcdff1;
+            color: #31708f;
+        }
+        .controls {
+            margin: 10px 0;
+        }
+        .face-feedback {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .nav-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .tab-buttons {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .tab-btn {
+            padding: 10px 15px;
+            border: none;
+            background-color: #f0f0f0;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .tab-btn.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI Face Attendance - WebSocket Authentication</h1>
+    
+    <div class="connection-status">
+        <span class="status-indicator disconnected" id="connectionIndicator"></span>
+        <span id="connectionStatus">Disconnected</span>
+    </div>
+    
+    <div class="tab-buttons">
+        <button class="tab-btn active" id="loginTab">Login</button>
+        <button class="tab-btn" id="registerTab">Register</button>
+    </div>
+    
+    <div class="container">
+        <!-- Login Panels -->
+        <div id="loginContainer">
+            <div class="panel" id="cameraPanel">
+                <h2>Face Authentication</h2>
+                <p>Look directly at the camera. The system will attempt to identify you in real-time.</p>
+                
+                <div id="videoContainer">
+                    <video id="video" autoplay playsinline></video>
+                    <canvas id="canvas"></canvas>
+                    <div id="faceFeedback" class="face-feedback hidden"></div>
+                </div>
+                
+                <div class="controls">
+                    <button id="btnStartCamera">Start Camera</button>
+                    <button id="btnStopCamera" disabled>Stop Camera</button>
+                </div>
+                
+                <div id="statusMessage" class="status-message hidden"></div>
+            </div>
+            
+            <div class="panel hidden" id="passwordPanel">
+                <h2>Confirm Identity</h2>
+                <p>Please enter your password to complete the authentication.</p>
+                <div class="form-group">
+                    <label for="email">Email:</label>
+                    <input type="email" id="email" readonly>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" placeholder="Enter your password">
+                </div>
+                <div class="controls">
+                    <button id="btnVerifyPassword">Verify & Login</button>
+                    <button id="btnCancelPassword">Cancel</button>
+                </div>
+            </div>
+            
+            <div class="panel hidden" id="userInfoPanel">
+                <h2>Authentication Successful</h2>
+                <div id="userInfo" class="user-info"></div>
+                <div class="controls">
+                    <button id="btnLogout">Logout</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Registration Panels -->
+        <div id="registerContainer" class="hidden">
+            <div class="panel" id="registerFormPanel">
+                <h2>Register New Account</h2>
+                <p>Please fill out the form below to create a new account.</p>
+                
+                <div class="form-group">
+                    <label for="regUsername">Username:</label>
+                    <input type="text" id="regUsername" placeholder="Enter username">
+                </div>
+                
+                <div class="form-group">
+                    <label for="regEmail">Email:</label>
+                    <input type="email" id="regEmail" placeholder="Enter email">
+                </div>
+                
+                <div class="form-group">
+                    <label for="regFullName">Full Name:</label>
+                    <input type="text" id="regFullName" placeholder="Enter your full name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="regPassword">Password:</label>
+                    <input type="password" id="regPassword" placeholder="Enter password">
+                </div>
+                
+                <div class="form-group">
+                    <label for="regPasswordConfirm">Confirm Password:</label>
+                    <input type="password" id="regPasswordConfirm" placeholder="Confirm password">
+                </div>
+                
+                <div class="controls">
+                    <button id="btnNextToRegisterFace">Next: Register Face</button>
+                </div>
+            </div>
+            
+            <div class="panel hidden" id="registerFacePanel">
+                <h2>Register Your Face</h2>
+                <p>Look directly at the camera to capture your face for recognition.</p>
+                
+                <div id="regVideoContainer">
+                    <video id="regVideo" autoplay playsinline></video>
+                    <canvas id="regCanvas"></canvas>
+                    <div id="regFaceFeedback" class="face-feedback hidden"></div>
+                </div>
+                
+                <div class="controls">
+                    <button id="btnStartRegCamera">Start Camera</button>
+                    <button id="btnStopRegCamera" disabled>Stop Camera</button>
+                    <button id="btnCaptureFace" disabled>Capture Face</button>
+                </div>
+                
+                <div class="form-group hidden" id="capturedFacePreview">
+                    <h3>Captured Face:</h3>
+                    <img id="regFacePreview" src="" alt="Captured face" style="max-width: 320px; border: 1px solid #ccc;">
+                </div>
+                
+                <div class="controls">
+                    <button id="btnBackToRegForm">Back</button>
+                    <button id="btnCompleteRegistration" disabled>Complete Registration</button>
+                </div>
+            </div>
+            
+            <div class="panel hidden" id="registrationSuccessPanel">
+                <h2>Registration Successful!</h2>
+                <p>Your account has been created and your face has been registered.</p>
+                <p>You can now login with your face or username and password.</p>
+                <div class="controls">
+                    <button id="btnGoToLogin">Go to Login</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>WebSocket Messages</h2>
+            <div id="messages"></div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements - Login
+        const connectionIndicator = document.getElementById('connectionIndicator');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const videoContainer = document.getElementById('videoContainer');
+        const faceFeedback = document.getElementById('faceFeedback');
+        const btnStartCamera = document.getElementById('btnStartCamera');
+        const btnStopCamera = document.getElementById('btnStopCamera');
+        const statusMessage = document.getElementById('statusMessage');
+        const email = document.getElementById('email');
+        const password = document.getElementById('password');
+        const btnVerifyPassword = document.getElementById('btnVerifyPassword');
+        const btnCancelPassword = document.getElementById('btnCancelPassword');
+        const userInfo = document.getElementById('userInfo');
+        const messages = document.getElementById('messages');
+        
+        // DOM Elements - Registration
+        const regUsername = document.getElementById('regUsername');
+        const regEmail = document.getElementById('regEmail');
+        const regFullName = document.getElementById('regFullName');
+        const regPassword = document.getElementById('regPassword');
+        const regPasswordConfirm = document.getElementById('regPasswordConfirm');
+        const regVideo = document.getElementById('regVideo');
+        const regCanvas = document.getElementById('regCanvas');
+        const regFaceFeedback = document.getElementById('regFaceFeedback');
+        const btnStartRegCamera = document.getElementById('btnStartRegCamera');
+        const btnStopRegCamera = document.getElementById('btnStopRegCamera');
+        const btnCaptureFace = document.getElementById('btnCaptureFace');
+        const regFacePreview = document.getElementById('regFacePreview');
+        const capturedFacePreview = document.getElementById('capturedFacePreview');
+        const btnCompleteRegistration = document.getElementById('btnCompleteRegistration');
+        
+        // Panels
+        const cameraPanel = document.getElementById('cameraPanel');
+        const passwordPanel = document.getElementById('passwordPanel');
+        const userInfoPanel = document.getElementById('userInfoPanel');
+        const registerFormPanel = document.getElementById('registerFormPanel');
+        const registerFacePanel = document.getElementById('registerFacePanel');
+        const registrationSuccessPanel = document.getElementById('registrationSuccessPanel');
+        
+        // Containers
+        const loginContainer = document.getElementById('loginContainer');
+        const registerContainer = document.getElementById('registerContainer');
+        
+        // Tab buttons
+        const loginTab = document.getElementById('loginTab');
+        const registerTab = document.getElementById('registerTab');
+        
+        // WebSocket connection
+        let socket = null;
+        let stream = null;
+        let regStream = null;
+        let captureInterval = null;
+        let faceCaptureEnabled = false;
+        let lastIdentifiedUser = null;
+        let capturedFaceBase64 = null;
+        
+        // Tab switching
+        loginTab.addEventListener('click', () => {
+            loginTab.classList.add('active');
+            registerTab.classList.remove('active');
+            loginContainer.classList.remove('hidden');
+            registerContainer.classList.add('hidden');
+        });
+        
+        registerTab.addEventListener('click', () => {
+            registerTab.classList.add('active');
+            loginTab.classList.remove('active');
+            registerContainer.classList.remove('hidden');
+            loginContainer.classList.add('hidden');
+        });
+        
+        // Registration flow navigation
+        document.getElementById('btnNextToRegisterFace').addEventListener('click', () => {
+            // Validate registration form
+            if (!regUsername.value) {
+                showStatusMessage('Username is required', 'error');
+                return;
+            }
+            if (!regEmail.value) {
+                showStatusMessage('Email is required', 'error');
+                return;
+            }
+            if (!regPassword.value) {
+                showStatusMessage('Password is required', 'error');
+                return;
+            }
+            if (regPassword.value !== regPasswordConfirm.value) {
+                showStatusMessage('Passwords do not match', 'error');
+                return;
+            }
+            
+            // Proceed to face registration
+            registerFormPanel.classList.add('hidden');
+            registerFacePanel.classList.remove('hidden');
+        });
+        
+        document.getElementById('btnBackToRegForm').addEventListener('click', () => {
+            registerFacePanel.classList.add('hidden');
+            registerFormPanel.classList.remove('hidden');
+            stopRegCamera();
+        });
+        
+        document.getElementById('btnGoToLogin').addEventListener('click', () => {
+            loginTab.click();
+            registrationSuccessPanel.classList.add('hidden');
+        });
+        
+        // Connect to WebSocket
+        function connectWebSocket() {
+            // Use secure WebSocket (wss://) in production
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/auth/face/`;
+            
+            // Try to connect using the standard URL first, fallback to localhost for development
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function(e) {
+                connectionIndicator.classList.remove('disconnected');
+                connectionIndicator.classList.add('connected');
+                connectionStatus.textContent = 'Connected';
+                addMessage('WebSocket connection established');
+            };
+            
+            socket.onmessage = function(e) {
+                const data = JSON.parse(e.data);
+                handleWebSocketMessage(data);
+            };
+            
+            socket.onclose = function(e) {
+                connectionIndicator.classList.remove('connected');
+                connectionIndicator.classList.add('disconnected');
+                connectionStatus.textContent = 'Disconnected';
+                addMessage(`WebSocket connection closed: ${e.reason}`);
+                
+                // Attempt to reconnect after a delay
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            socket.onerror = function(e) {
+                addMessage('WebSocket error: ' + e.message);
+            };
+        }
+        
+        // Handle WebSocket messages
+        function handleWebSocketMessage(data) {
+            addMessage(JSON.stringify(data, null, 2));
+            
+            switch (data.type) {
+                case 'connection_established':
+                    // Connection confirmed by server
+                    break;
+                    
+                case 'face_detected':
+                    handleFaceDetected(data);
+                    break;
+                    
+                case 'face_detection_error':
+                    showStatusMessage(data.message, 'error');
+                    break;
+                    
+                case 'auth_error':
+                    showStatusMessage(data.message, 'error');
+                    cameraPanel.classList.remove('loading');
+                    passwordPanel.classList.remove('loading');
+                    break;
+                    
+                case 'auth_success':
+                    handleAuthSuccess(data);
+                    break;
+                    
+                case 'registration_success':
+                    handleRegistrationSuccess(data);
+                    break;
+                    
+                case 'error':
+                    showStatusMessage(data.message, 'error');
+                    cameraPanel.classList.remove('loading');
+                    registerFacePanel.classList.remove('loading');
+                    break;
+            }
+        }
+        
+        // Handle face detection message
+        function handleFaceDetected(data) {
+            if (data.status === 'success') {
+                faceFeedback.textContent = 'Face recognized!';
+                faceFeedback.style.backgroundColor = 'rgba(76, 175, 80, 0.7)';
+                faceFeedback.classList.remove('hidden');
+                
+                // If we have a valid user, prompt for password
+                if (data.user_email && data.next_step === 'password_verification') {
+                    // Stop face capture
+                    stopFaceCapture();
+                    
+                    // Show password verification
+                    lastIdentifiedUser = data.user_email;
+                    email.value = data.user_email;
+                    showPasswordPanel();
+                }
+            } else if (data.status === 'unrecognized') {
+                faceFeedback.textContent = 'Face not recognized';
+                faceFeedback.style.backgroundColor = 'rgba(244, 67, 54, 0.7)';
+                faceFeedback.classList.remove('hidden');
+            }
+        }
+        
+        // Handle successful authentication
+        function handleAuthSuccess(data) {
+            cameraPanel.classList.remove('loading');
+            passwordPanel.classList.remove('loading');
+            passwordPanel.classList.add('hidden');
+            
+            // Store tokens in localStorage
+            localStorage.setItem('access_token', data.tokens.access);
+            localStorage.setItem('refresh_token', data.tokens.refresh);
+            
+            // Show user info
+            userInfoPanel.classList.remove('hidden');
+            userInfo.innerHTML = `
+                <p><strong>Username:</strong> ${data.user.username}</p>
+                <p><strong>Email:</strong> ${data.user.email}</p>
+                <p><strong>Full Name:</strong> ${data.user.full_name || 'N/A'}</p>
+                <p><strong>Role:</strong> ${data.user.role}</p>
+            `;
+            
+            showStatusMessage('Authentication successful!', 'success');
+        }
+        
+        // Handle successful registration
+        function handleRegistrationSuccess(data) {
+            registerFacePanel.classList.remove('loading');
+            registerFacePanel.classList.add('hidden');
+            registrationSuccessPanel.classList.remove('hidden');
+            
+            // Reset form
+            regUsername.value = '';
+            regEmail.value = '';
+            regFullName.value = '';
+            regPassword.value = '';
+            regPasswordConfirm.value = '';
+            capturedFaceBase64 = null;
+            capturedFacePreview.classList.add('hidden');
+            btnCompleteRegistration.disabled = true;
+            
+            showStatusMessage('Registration successful!', 'success');
+        }
+        
+        // Initialize camera for login
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    } 
+                });
+                
+                video.srcObject = stream;
+                
+                btnStartCamera.disabled = true;
+                btnStopCamera.disabled = false;
+                
+                // Start capturing frames for face recognition
+                startFaceCapture();
+                
+            } catch (err) {
+                showStatusMessage(`Error accessing camera: ${err.message}`, 'error');
+            }
+        }
+        
+        // Stop camera for login
+        function stopCamera() {
+            stopFaceCapture();
+            
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                video.srcObject = null;
+            }
+            
+            btnStartCamera.disabled = false;
+            btnStopCamera.disabled = true;
+            faceFeedback.classList.add('hidden');
+        }
+        
+        // Initialize camera for registration
+        async function startRegCamera() {
+            try {
+                regStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    } 
+                });
+                
+                regVideo.srcObject = regStream;
+                
+                btnStartRegCamera.disabled = true;
+                btnStopRegCamera.disabled = false;
+                btnCaptureFace.disabled = false;
+                
+            } catch (err) {
+                showStatusMessage(`Error accessing camera: ${err.message}`, 'error');
+            }
+        }
+        
+        // Stop camera for registration
+        function stopRegCamera() {
+            if (regStream) {
+                regStream.getTracks().forEach(track => track.stop());
+                regStream = null;
+                regVideo.srcObject = null;
+            }
+            
+            btnStartRegCamera.disabled = false;
+            btnStopRegCamera.disabled = true;
+            btnCaptureFace.disabled = true;
+        }
+        
+        // Capture face for registration
+        function captureFace() {
+            if (!regStream) return;
+            
+            const context = regCanvas.getContext('2d');
+            regCanvas.width = regVideo.videoWidth;
+            regCanvas.height = regVideo.videoHeight;
+            
+            // Draw video frame to canvas
+            context.drawImage(regVideo, 0, 0, regCanvas.width, regCanvas.height);
+            
+            // Get base64 image data
+            const imageUrl = regCanvas.toDataURL('image/jpeg');
+            capturedFaceBase64 = imageUrl.split(',')[1];
+            
+            // Show preview
+            regFacePreview.src = imageUrl;
+            capturedFacePreview.classList.remove('hidden');
+            
+            // Enable complete registration button
+            btnCompleteRegistration.disabled = false;
+            
+            // Show success feedback
+            regFaceFeedback.textContent = 'Face captured successfully!';
+            regFaceFeedback.style.backgroundColor = 'rgba(76, 175, 80, 0.7)';
+            regFaceFeedback.classList.remove('hidden');
+            
+            // Hide feedback after 3 seconds
+            setTimeout(() => {
+                regFaceFeedback.classList.add('hidden');
+            }, 3000);
+        }
+        
+        // Start capturing frames for face recognition
+        function startFaceCapture() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                showStatusMessage('WebSocket not connected', 'error');
+                return;
+            }
+            
+            faceCaptureEnabled = true;
+            captureInterval = setInterval(captureFrame, 1000); // Capture once per second
+        }
+        
+        // Stop capturing frames
+        function stopFaceCapture() {
+            faceCaptureEnabled = false;
+            if (captureInterval) {
+                clearInterval(captureInterval);
+                captureInterval = null;
+            }
+        }
+        
+        // Capture a frame and send for processing
+        function captureFrame() {
+            if (!faceCaptureEnabled || !stream) return;
+            
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            // Draw video frame to canvas
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Get base64 image data
+            const imageBase64 = canvas.toDataURL('image/jpeg').split(',')[1];
+            
+            // Send frame for processing
+            sendFaceFrame(imageBase64);
+        }
+        
+        // Send face frame to server
+        function sendFaceFrame(imageBase64) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const message = {
+                    type: 'face_frame',
+                    face_image: imageBase64
+                };
+                
+                socket.send(JSON.stringify(message));
+                connectionIndicator.classList.add('processing');
+                
+                // Clear processing indicator after a short delay
+                setTimeout(() => {
+                    connectionIndicator.classList.remove('processing');
+                }, 200);
+            }
+        }
+        
+        // Send registration request
+        function sendRegistrationRequest() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                showStatusMessage('WebSocket not connected', 'error');
+                return;
+            }
+            
+            if (!regUsername.value || !regEmail.value || !regPassword.value || !capturedFaceBase64) {
+                showStatusMessage('All fields and face capture are required', 'error');
+                return;
+            }
+            
+            registerFacePanel.classList.add('loading');
+            
+            const message = {
+                type: 'registration_request',
+                username: regUsername.value,
+                email: regEmail.value,
+                full_name: regFullName.value,
+                password: regPassword.value,
+                face_image: capturedFaceBase64
+            };
+            
+            socket.send(JSON.stringify(message));
+        }
+        
+        // Send password verification request
+        function sendPasswordVerification(email, password) {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                showStatusMessage('WebSocket not connected', 'error');
+                return;
+            }
+            
+            passwordPanel.classList.add('loading');
+            
+            const message = {
+                type: 'verify_password',
+                email: email,
+                password: password
+            };
+            
+            socket.send(JSON.stringify(message));
+        }
+        
+        // Show password verification panel
+        function showPasswordPanel() {
+            cameraPanel.classList.add('hidden');
+            passwordPanel.classList.remove('hidden');
+            password.focus();
+        }
+        
+        // Show status message
+        function showStatusMessage(message, type) {
+            statusMessage.textContent = message;
+            statusMessage.className = 'status-message';
+            statusMessage.classList.add(type);
+            statusMessage.classList.remove('hidden');
+            
+            // Hide after 5 seconds
+            setTimeout(() => {
+                statusMessage.classList.add('hidden');
+            }, 5000);
+        }
+        
+        // Add message to the log
+        function addMessage(message) {
+            const date = new Date();
+            const time = date.toLocaleTimeString();
+            messages.innerHTML += `[${time}] ${message}\n\n`;
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        // Event listeners - Login
+        btnStartCamera.addEventListener('click', startCamera);
+        btnStopCamera.addEventListener('click', stopCamera);
+        
+        btnVerifyPassword.addEventListener('click', () => {
+            if (!email.value || !password.value) {
+                showStatusMessage('Email and password are required', 'error');
+                return;
+            }
+            
+            sendPasswordVerification(email.value, password.value);
+        });
+        
+        btnCancelPassword.addEventListener('click', () => {
+            passwordPanel.classList.add('hidden');
+            cameraPanel.classList.remove('hidden');
+            startCamera();
+        });
+        
+        document.getElementById('btnLogout').addEventListener('click', () => {
+            // Clear tokens
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            
+            // Reset UI
+            userInfoPanel.classList.add('hidden');
+            cameraPanel.classList.remove('hidden');
+            password.value = '';
+            
+            showStatusMessage('Logged out successfully', 'info');
+        });
+        
+        // Event listeners - Registration
+        btnStartRegCamera.addEventListener('click', startRegCamera);
+        btnStopRegCamera.addEventListener('click', stopRegCamera);
+        btnCaptureFace.addEventListener('click', captureFace);
+        btnCompleteRegistration.addEventListener('click', sendRegistrationRequest);
+        
+        // Initialize
+        window.addEventListener('load', () => {
+            // Connect to WebSocket
+            connectWebSocket();
+            
+            // Check if user is already logged in (has token)
+            const token = localStorage.getItem('access_token');
+            if (token) {
+                // Here you would verify the token validity
+                // If valid, you could show the user info panel
+            }
+        });
+    </script>
+</body>
+</html> 

@@ -1,0 +1,16 @@
+Django
+djangorestframework
+djangorestframework-simplejwt
+drf-yasg
+Pillow
+opencv-python
+face-recognition
+numpy
+psycopg2-binary
+python-dotenv
+pytest
+pytest-django
+mixer 
+channels
+channels-redis
+daphne 

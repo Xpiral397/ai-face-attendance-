@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Face Attendance - Enhanced Face Login Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .panel {
+            border: 1px solid #ccc;
+            padding: 20px;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 0;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input[type="email"], input[type="password"] {
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 250px;
+        }
+        #videoContainer, #imagePreview {
+            margin: 10px 0;
+            width: 320px;
+            height: 240px;
+            border: 1px solid #ccc;
+            background-color: #f0f0f0;
+        }
+        #imagePreview img {
+            max-width: 100%;
+            max-height: 100%;
+        }
+        #response {
+            white-space: pre-wrap;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-height: 100px;
+            font-family: monospace;
+        }
+        .hidden {
+            display: none;
+        }
+        .user-info {
+            border-left: 3px solid #4CAF50;
+            padding-left: 15px;
+            margin: 10px 0;
+        }
+        .login-steps {
+            display: flex;
+            margin-bottom: 15px;
+        }
+        .step {
+            padding: 10px 15px;
+            background-color: #f0f0f0;
+            margin-right: 5px;
+            border-radius: 4px;
+            color: #666;
+        }
+        .step.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .step.completed {
+            background-color: #8bc34a;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI Face Attendance - Enhanced Face Login Demo</h1>
+    <p>This demo shows a 2-factor authentication process using face recognition + password verification.</p>
+    
+    <div class="login-steps">
+        <div class="step active" id="step1">Step 1: Email</div>
+        <div class="step" id="step2">Step 2: Face</div>
+        <div class="step" id="step3">Step 3: Password</div>
+        <div class="step" id="step4">Step 4: Login</div>
+    </div>
+    
+    <div class="container">
+        <div class="panel" id="emailPanel">
+            <h2>Step 1: Enter Email (Optional)</h2>
+            <p>Enter your email or let the system identify you by face.</p>
+            <div>
+                <label for="email">Email:</label>
+                <input type="email" id="email" placeholder="Enter your email" value="test@example.com">
+            </div>
+            <button id="btnNextToFace">Next: Capture Face</button>
+        </div>
+
+        <div class="panel hidden" id="facePanel">
+            <h2>Step 2: Capture or Upload Face Image</h2>
+            
+            <div>
+                <button id="btnUseCamera">Use Camera</button>
+                <button id="btnUploadImage">Upload Image</button>
+                <input type="file" id="imageUpload" accept="image/*" class="hidden">
+            </div>
+            
+            <div id="videoContainer" class="hidden">
+                <video id="video" width="320" height="240" autoplay></video>
+                <div>
+                    <button id="btnCapture">Capture</button>
+                    <button id="btnStopCamera">Cancel</button>
+                </div>
+            </div>
+            
+            <div id="imagePreview" class="hidden">
+                <img id="preview" src="">
+                <canvas id="canvas" width="320" height="240" style="display:none;"></canvas>
+            </div>
+            
+            <div>
+                <button id="btnBackToEmail" class="hidden">Back</button>
+                <button id="btnNextToPassword" disabled>Next: Enter Password</button>
+            </div>
+        </div>
+        
+        <div class="panel hidden" id="passwordPanel">
+            <h2>Step 3: Enter Password</h2>
+            <p>Please enter your password to complete the 2-factor authentication.</p>
+            <div>
+                <label for="password">Password:</label>
+                <input type="password" id="password" placeholder="Enter your password">
+            </div>
+            <div>
+                <button id="btnBackToFace">Back</button>
+                <button id="btnLogin">Login</button>
+            </div>
+        </div>
+        
+        <div class="panel hidden" id="userInfoPanel">
+            <h2>Authentication Successful</h2>
+            <div id="userInfo" class="user-info"></div>
+            <button id="btnLogout">Logout</button>
+        </div>
+        
+        <div class="panel">
+            <h2>Status</h2>
+            <div id="loginStatus"></div>
+            <h3>API Response</h3>
+            <div id="response"></div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const email = document.getElementById('email');
+        const password = document.getElementById('password');
+        const btnNextToFace = document.getElementById('btnNextToFace');
+        const btnNextToPassword = document.getElementById('btnNextToPassword');
+        const btnBackToEmail = document.getElementById('btnBackToEmail');
+        const btnBackToFace = document.getElementById('btnBackToFace');
+        const btnUseCamera = document.getElementById('btnUseCamera');
+        const btnUploadImage = document.getElementById('btnUploadImage');
+        const imageUpload = document.getElementById('imageUpload');
+        const video = document.getElementById('video');
+        const videoContainer = document.getElementById('videoContainer');
+        const btnCapture = document.getElementById('btnCapture');
+        const btnStopCamera = document.getElementById('btnStopCamera');
+        const canvas = document.getElementById('canvas');
+        const preview = document.getElementById('preview');
+        const imagePreview = document.getElementById('imagePreview');
+        const btnLogin = document.getElementById('btnLogin');
+        const btnLogout = document.getElementById('btnLogout');
+        const loginStatus = document.getElementById('loginStatus');
+        const response = document.getElementById('response');
+        const userInfoPanel = document.getElementById('userInfoPanel');
+        const userInfo = document.getElementById('userInfo');
+        
+        // Panels
+        const emailPanel = document.getElementById('emailPanel');
+        const facePanel = document.getElementById('facePanel');
+        const passwordPanel = document.getElementById('passwordPanel');
+        
+        // Steps
+        const step1 = document.getElementById('step1');
+        const step2 = document.getElementById('step2');
+        const step3 = document.getElementById('step3');
+        const step4 = document.getElementById('step4');
+        
+        let imageBase64 = null;
+        let stream = null;
+        
+        // Navigation between steps
+        btnNextToFace.addEventListener('click', () => {
+            emailPanel.classList.add('hidden');
+            facePanel.classList.remove('hidden');
+            btnBackToEmail.classList.remove('hidden');
+            
+            step1.classList.remove('active');
+            step1.classList.add('completed');
+            step2.classList.add('active');
+        });
+        
+        btnBackToEmail.addEventListener('click', () => {
+            facePanel.classList.add('hidden');
+            emailPanel.classList.remove('hidden');
+            
+            step2.classList.remove('active');
+            step1.classList.remove('completed');
+            step1.classList.add('active');
+        });
+        
+        btnNextToPassword.addEventListener('click', () => {
+            facePanel.classList.add('hidden');
+            passwordPanel.classList.remove('hidden');
+            
+            step2.classList.remove('active');
+            step2.classList.add('completed');
+            step3.classList.add('active');
+        });
+        
+        btnBackToFace.addEventListener('click', () => {
+            passwordPanel.classList.add('hidden');
+            facePanel.classList.remove('hidden');
+            
+            step3.classList.remove('active');
+            step2.classList.remove('completed');
+            step2.classList.add('active');
+        });
+        
+        // Initialize camera access
+        btnUseCamera.addEventListener('click', async () => {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                videoContainer.classList.remove('hidden');
+                imagePreview.classList.add('hidden');
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                loginStatus.textContent = `Error accessing camera: ${err.message}`;
+            }
+        });
+        
+        // Stop camera
+        btnStopCamera.addEventListener('click', () => {
+            stopCamera();
+            videoContainer.classList.add('hidden');
+        });
+        
+        // Capture image from camera
+        btnCapture.addEventListener('click', () => {
+            const context = canvas.getContext('2d');
+            // Draw video frame to canvas
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Get base64 image data
+            imageBase64 = canvas.toDataURL('image/jpeg').split(',')[1];
+            
+            // Display the captured image
+            preview.src = canvas.toDataURL('image/jpeg');
+            imagePreview.classList.remove('hidden');
+            
+            // Stop the camera
+            stopCamera();
+            videoContainer.classList.add('hidden');
+            
+            // Enable next button
+            btnNextToPassword.disabled = false;
+        });
+        
+        // Upload image
+        btnUploadImage.addEventListener('click', () => {
+            imageUpload.click();
+        });
+        
+        imageUpload.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    imagePreview.classList.remove('hidden');
+                    
+                    // Get base64 data (remove the data:image/jpeg;base64, part)
+                    imageBase64 = e.target.result.split(',')[1];
+                    
+                    // Enable next button
+                    btnNextToPassword.disabled = false;
+                };
+                
+                reader.readAsDataURL(e.target.files[0]);
+            }
+        });
+        
+        // Login with face and password
+        btnLogin.addEventListener('click', async () => {
+            if (!imageBase64) {
+                loginStatus.textContent = 'Face image is required!';
+                return;
+            }
+            
+            loginStatus.textContent = 'Authenticating...';
+            
+            try {
+                // Prepare the payload with email (optional), face image, and password
+                const payload = {
+                    face_image: imageBase64
+                };
+                
+                // Add email if provided
+                if (email.value) {
+                    payload.email = email.value;
+                }
+                
+                // Add password if provided
+                if (password.value) {
+                    payload.password = password.value;
+                }
+                
+                const faceLoginUrl = 'http://127.0.0.1:8000/api/auth/face_login/';
+                
+                const res = await fetch(faceLoginUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await res.json();
+                
+                // Display raw response
+                response.textContent = JSON.stringify(data, null, 2);
+                
+                if (res.status === 200 && data.access) {
+                    loginStatus.textContent = 'Authentication successful!';
+                    loginStatus.style.color = 'green';
+                    
+                    // Update step indicators
+                    step3.classList.remove('active');
+                    step3.classList.add('completed');
+                    step4.classList.add('completed');
+                    
+                    // Hide password panel, show user info
+                    passwordPanel.classList.add('hidden');
+                    userInfoPanel.classList.remove('hidden');
+                    
+                    // Fetch user profile with the access token
+                    const profileRes = await fetch('http://127.0.0.1:8000/api/auth/profile/', {
+                        headers: {
+                            'Authorization': `Bearer ${data.access}`
+                        }
+                    });
+                    
+                    const profileData = await profileRes.json();
+                    
+                    // Display user info
+                    userInfo.innerHTML = `
+                        <p><strong>Username:</strong> ${profileData.username}</p>
+                        <p><strong>Email:</strong> ${profileData.email}</p>
+                        <p><strong>Full Name:</strong> ${profileData.full_name || 'N/A'}</p>
+                        <p><strong>Role:</strong> ${profileData.role}</p>
+                    `;
+                    
+                    // Store the token in localStorage (real application would do this)
+                    localStorage.setItem('access_token', data.access);
+                    localStorage.setItem('refresh_token', data.refresh);
+                } else {
+                    loginStatus.textContent = data.detail || 'Authentication failed';
+                    loginStatus.style.color = 'red';
+                }
+            } catch (err) {
+                console.error('Error during authentication:', err);
+                loginStatus.textContent = `Error: ${err.message}`;
+                loginStatus.style.color = 'red';
+                response.textContent = `Error: ${err.message}`;
+            }
+        });
+        
+        // Logout handler
+        btnLogout.addEventListener('click', () => {
+            // Clear tokens
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            
+            // Reset UI
+            userInfoPanel.classList.add('hidden');
+            emailPanel.classList.remove('hidden');
+            imagePreview.classList.add('hidden');
+            password.value = '';
+            imageBase64 = null;
+            btnNextToPassword.disabled = true;
+            
+            // Reset steps
+            step1.classList.add('active');
+            step2.classList.remove('active', 'completed');
+            step3.classList.remove('active', 'completed');
+            step4.classList.remove('active', 'completed');
+            
+            loginStatus.textContent = 'Logged out successfully';
+            loginStatus.style.color = 'green';
+        });
+        
+        // Helper to stop camera
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+        }
+    </script>
+</body>
+</html> 
